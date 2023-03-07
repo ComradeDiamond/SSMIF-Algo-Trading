@@ -1,6 +1,8 @@
 import pandas
 import yfinance
 from datetime import date, timedelta
+import matplotlib.pyplot as plt
+import mplcursors as mpc
 
 
 '''
@@ -88,11 +90,13 @@ class IndicatorsTA:
 
     '''
     Calculates the Relative Strength Index of a stock over $window days
+    Not using Panda dataframe libraries too much because I'm not sure if I'm allowed to have the libraries do the work for me
     @param {int} window The time period, in days, to calculate RSI by
     @returns {DataFrame} A dataframe representing the RSI of the stock from startDate to endDate
     '''
     def __getRSI(self, window : int = 14):
         # We want to get the stock data 3 extra days before the initial date as we need to find the gain/loss on the first day as well, and those dates might be on weekends
+        # RSI might be a bit off from ones online since RSI uses prior data, and online sites accumulate data for the, say, past few hundred days
         initDate = self.stockdf.iloc[0].name.date()
         preStartData = yfinance.download(self.__tickerSymbol, daysBefore(initDate, window + 3), daysAfter(initDate, 1))
         rsiData = []
@@ -104,7 +108,7 @@ class IndicatorsTA:
         for i in range(1, len(preStartData.index)):
 
             # Edge case: date out of bounds due to extra stock data (usually on weekends)
-            if (preStartData.iloc[i].name.date() < daysBefore(initDate, window)):
+            if (preStartData.iloc[i].name.date() < daysBefore(initDate, window - 1)):
                 continue
 
             priceDiff = preStartData.iloc[i]["Close"] - preStartData.iloc[i - 1]["Close"]
@@ -122,14 +126,20 @@ class IndicatorsTA:
         else:
             rsiData.append(100 - (100 / (1 + (avgGain / avgLoss))))
 
+        # Reset vars to use later
+        loss = 0
+        gain = 0
+
         # The subsequent RSI equation is the same, but average gain/loss = [(previous average change) x (window - 1) + current change] / window.
         for i in range(1, len(self.stockdf.index)):
             
-            priceDiff = (self.stockdf.iloc[i]["Close"] - self.stockdf.iloc[i - 1]["Close"]) / self.stockdf.iloc[i - 1]["Close"]
+            priceDiff = (self.stockdf.iloc[i]["Close"] - self.stockdf.iloc[i - 1]["Close"])
 
             if (priceDiff < 0):
                 loss = abs(priceDiff)
+                gain = 0
             elif (priceDiff > 0):
+                loss = 0
                 gain = priceDiff
 
             avgGain = (avgGain * (window - 1) + gain) / window
@@ -138,7 +148,9 @@ class IndicatorsTA:
             if (avgLoss == 0):
                 rsiData.append(100) # Edge case that uses infinity - if average loss (and hence loss because math) is 0, RSI == 100
             else:
-                rsiData.append(100 - (100 / (1 + (avgGain / avgLoss))))
+                rs = avgGain / avgLoss
+                rsi = 100 - (100 / (1 + (rs)))
+                rsiData.append(rsi)
         
         rsiData = map(lambda x: round(x, 2), rsiData)
         return pandas.DataFrame({"RSI(" + str(window) + ")" : rsiData}, index=self.stockdf.index)
@@ -234,9 +246,9 @@ class IndicatorsTA:
             # precise data it stores going back, we'll try to maximize the number of intervals we can aggregate using VWAP.
             if (daysFromToday <= 725):
 
-                dailyData = yfinance.download(self.__tickerSymbol, dateStr.isoformat(), interval="1h")
+                dailyData = yfinance.download(self.__tickerSymbol, dateStr.isoformat(), daysAfter(dateStr, 1), interval="1h")
+        
                 cumPV = 0
-
                 # VWAP formula: (cumulative typical price * volume at interval) / total volume for the day
                 for i in range(len(dailyData.index)):
                     typicalPrice = (dailyData.iloc[i]["Close"] + dailyData.iloc[i]["High"] + dailyData.iloc[i]["Low"]) / 3
@@ -263,7 +275,57 @@ class IndicatorsTA:
         
         merged = pandas.merge(adjClose, rsi, left_index=True, right_index=True).merge(bbands, left_index=True, right_index=True).merge(vwap, left_index=True, right_index=True)
 
-        print(merged)
+        # print(merged)
         return merged
 
-test = IndicatorsTA("AAPL", "2023-01-01", "2023-03-05")
+    '''
+    Plots self.algodf in another window containing Adj Close, RSI, BBands, and VWAP data
+    This uses pyplot.
+    '''
+    def plotIndicators(self):
+        figure, graphs = plt.subplots(3, sharex=True)
+        (graphRSI, graphBands, graphVWAP) = graphs
+
+        figure.suptitle("Algodf Results for $" + self.__tickerSymbol, fontsize=32)
+        figure.set_size_inches(12, 6)
+
+        times = list(map(lambda x: x.date().isoformat() , self.algodf.index))
+        vwaps = self.algodf["VWAP"].values
+        rsi = self.algodf.iloc[:, 1].values
+        
+        # Giving these all variable names so they can be strong references for figure.legend and mpccursor
+        g1, = graphRSI.plot(times, rsi, color="#30e8fc", label="RSI"),
+        g2, = graphVWAP.plot(times, vwaps, color="#fc6afc", label="VWAP"),
+        g3, = graphBands.plot(times, self.algodf.iloc[:, 2].values, color="#ff6145", label="Low Band"),
+        g4, = graphBands.plot(times, self.algodf.iloc[:, 3].values, color="#fcde30", label="Middle Band"),
+        g5, = graphBands.plot(times, self.algodf.iloc[:, 4].values, color="#30fc33", label="Upper Band"),
+        g6, = graphBands.plot(times, self.algodf.iloc[:, 0].values, color="#1603a3", label="Adjusted Close")
+
+        plots = [g1,g2,g3,g4,g5,g6]
+
+        for graph in graphs:
+            graph.axes.spines["top"].set_visible(False)
+            graph.axes.spines["right"].set_visible(False)
+            graph.yaxis.grid(True, color="#dedede")
+
+        figure.legend(bbox_to_anchor=(1, 0.9), loc="upper right", borderaxespad=1, edgecolor="#f0f0f0")
+        
+        def cursorStuff(sel, lastAxvLine):
+            if (lastAxvLine[0] != None):
+                lastAxvLine[0].remove()
+            lastAxvLine[0] = graph.axes.axvline(x=sel.target[0], ymin=0, ymax=3.3, c="red", clip_on=False, alpha=0.5, dashes=(5,1,5,2), lw=1)
+            print(sel.artist.get_xydata())
+            #print(sel.annotation.get_text())
+            return sel.annotation.set_text("hi")
+        
+        # mpc.cursor(hover=True)
+        # mpc.cursor(plots)
+        lastAxvLine = [None]
+        mpc.cursor(graphs, hover=True).connect(
+            "add", lambda x: cursorStuff(x, lastAxvLine))
+    
+        plt.show()
+
+
+test = IndicatorsTA("SPY", "2023-01-01", "2023-03-05")
+test.plotIndicators()
