@@ -54,7 +54,7 @@ def linearRegression(x, y, evalX):
     return (slope * evalX) + intercept
 
 '''
-Class that tracks Stock Indicators, adds a display to said indicators, and converts the String format to a usable JSON-like structure
+Class that tracks Stock Data fetched from yfinance and plots stock indicators (RSI, BBands, Adj Close, VWAP)
 '''
 class IndicatorsTA:
 
@@ -336,5 +336,5 @@ class IndicatorsTA:
         plt.show()
 
 
-# test = IndicatorsTA("AAPL", "2023-01-01", "2023-03-05")
-# test.plotIndicators()
+test = IndicatorsTA("SPY", "2023-01-01", "2023-03-05")
+test.plotIndicators()
