@@ -336,5 +336,5 @@ class IndicatorsTA:
         plt.show()
 
 
-test = IndicatorsTA("SPY", "2023-01-01", "2023-03-05")
-test.plotIndicators()
+# test = IndicatorsTA("AAPL", "2023-01-01", "2023-03-05")
+# test.plotIndicators()
