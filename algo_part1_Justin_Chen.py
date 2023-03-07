@@ -83,9 +83,8 @@ class IndicatorsTA:
             "Adj Close"     # Adjusted close
         ]
 
-        self.stockdf = yfinance.download(tickerSymbol, startDate, endDate).reindex(columns=categories)
+        self.stockdf = yfinance.download(tickerSymbol, startDate, endDate).reindex(columns=categories).round(2)
 
-        # Call algo df
         self.algodf = self.__getIndicators()
 
     '''
@@ -286,40 +285,50 @@ class IndicatorsTA:
         figure, graphs = plt.subplots(3, sharex=True)
         (graphRSI, graphBands, graphVWAP) = graphs
 
-        figure.suptitle("Algodf Results for $" + self.__tickerSymbol, fontsize=32)
+        figure.suptitle("Algodf Results for $" + self.__tickerSymbol, fontsize=32, fontname="Trebuchet MS")
+        figure.text(0.4, 0.05, "Hover Over a Line to Show Data", fontsize=14, fontname="Trebuchet MS")
         figure.set_size_inches(12, 6)
 
+        # Allocate the lists to graph first
         times = list(map(lambda x: x.date().isoformat() , self.algodf.index))
-        vwaps = self.algodf["VWAP"].values
+        adjClose = self.algodf.iloc[:, 0].values
         rsi = self.algodf.iloc[:, 1].values
+        lowBand = self.algodf.iloc[:, 2].values
+        midBand = self.algodf.iloc[:, 3].values
+        upperBand = self.algodf.iloc[:, 4].values
+        vwap = self.algodf.iloc[:, 5].values
         
         # Giving these all variable names so they can be strong references for figure.legend and mpccursor
-        g1, = graphRSI.plot(times, rsi, color="#30e8fc", label="RSI"),
-        g2, = graphVWAP.plot(times, vwaps, color="#fc6afc", label="VWAP"),
-        g3, = graphBands.plot(times, self.algodf.iloc[:, 2].values, color="#ff6145", label="Low Band"),
-        g4, = graphBands.plot(times, self.algodf.iloc[:, 3].values, color="#fcde30", label="Middle Band"),
-        g5, = graphBands.plot(times, self.algodf.iloc[:, 4].values, color="#30fc33", label="Upper Band"),
-        g6, = graphBands.plot(times, self.algodf.iloc[:, 0].values, color="#1603a3", label="Adjusted Close")
-
-        plots = [g1,g2,g3,g4,g5,g6]
+        graphRSI.plot(times, rsi, color="#30e8fc", label="RSI")
+        graphVWAP.plot(times, vwap, color="#fc6afc", label="VWAP")
+        graphBands.plot(times, lowBand, color="#ff6145", label="Low Band")
+        graphBands.plot(times, midBand, color="#fcde30", label="Middle Band")
+        graphBands.plot(times, upperBand, color="#30fc33", label="Upper Band")
+        graphBands.plot(times, adjClose, color="#1603a3", label="Adjusted Close")
 
         for graph in graphs:
             graph.axes.spines["top"].set_visible(False)
             graph.axes.spines["right"].set_visible(False)
             graph.yaxis.grid(True, color="#dedede")
+            graph.xaxis.set_visible(False)
 
         figure.legend(bbox_to_anchor=(1, 0.9), loc="upper right", borderaxespad=1, edgecolor="#f0f0f0")
         
-        def cursorStuff(sel, lastAxvLine):
+        # Add a line describing all the data on the date
+        def cursorStuff(selected, lastAxvLine):
             if (lastAxvLine[0] != None):
                 lastAxvLine[0].remove()
-            lastAxvLine[0] = graph.axes.axvline(x=sel.target[0], ymin=0, ymax=3.3, c="red", clip_on=False, alpha=0.5, dashes=(5,1,5,2), lw=1)
-            print(sel.artist.get_xydata())
-            #print(sel.annotation.get_text())
-            return sel.annotation.set_text("hi")
+            lastAxvLine[0] = graph.axes.axvline(x=selected.target[0], ymin=0, ymax=3.3, c="#1551d4", clip_on=False, alpha=0.5, dashes=(5,1,5,2), lw=2)
+
+            # Gets date from the initial annotation
+            currText = selected.annotation.get_text()
+            currDate = currText[currText.find("x=") + 2 : currText.find("y=")].strip()
+            indexDate = times.index(currDate)
+
+            selected.annotation.set_bbox(dict(boxstyle="round", alpha=0.7, color='#ededed'))
+            return selected.annotation.set_text(f"{currDate}\nRSI: {rsi[indexDate]}\nAdj Close: ${adjClose[indexDate]}\n" +
+            f"Lower BBand: ${lowBand[indexDate]}\nMiddle BBand: ${midBand[indexDate]}\nUpper BBand: ${upperBand[indexDate]}\nVWAP: ${vwap[indexDate]}")
         
-        # mpc.cursor(hover=True)
-        # mpc.cursor(plots)
         lastAxvLine = [None]
         mpc.cursor(graphs, hover=True).connect(
             "add", lambda x: cursorStuff(x, lastAxvLine))
