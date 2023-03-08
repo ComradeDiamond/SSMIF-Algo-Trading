@@ -31,7 +31,6 @@ Date 2 - Date 1 basically
 @returns {int} Date difference in days
 '''
 def dateDifference(date1, date2):
-    print((date2 - date1).days)
     return (date2 - date1).days
 
 '''
@@ -47,7 +46,7 @@ class backtest(part1.IndicatorsTA):
     def __init__(self, quantity, position):
         
         # The stock we want to invest in. Change it as we like
-        part1.IndicatorsTA.__init__(self, "SPY", "2023-01-01", "2023-03-05")
+        part1.IndicatorsTA.__init__(self, "SPY", "2022-03-01", "2023-02-28")
 
         # Initializes instance variables we might want down the line
         self.__quantity__ = quantity
@@ -56,13 +55,12 @@ class backtest(part1.IndicatorsTA):
         # Useful dataframe
         self.trading_df = self.__generateTradingDF()
 
-        print(self.trading_df)
-
         # Creates a cumulative dataframe that contains the date, and % returns from buy and hold vs my strategy
         self.cumulative_df = pandas.DataFrame({"Buy & Hold": self.__calcBuyHold__(), "Your Strategy": self.calculateReturns()}, index=self.stockdf.index)
     
     '''
     Helper Function that calculates % returns if you buy and hold.
+    We don't calculate how many stocks we hold because they cancel out in the percent change equation
     Takes into account if you're in a long or short position
     @returns {float[]} An array of floats that represent % returns for each day from StartDate to EndDate
     '''
@@ -80,7 +78,13 @@ class backtest(part1.IndicatorsTA):
             else:
                 diffData.append((currPrice - initPrice) / initPrice)
 
-        return list(map(lambda x: round(x, 3), diffData))
+        priceArr = list(map(lambda x: round(x, 3), diffData))
+
+        # If you are in a long position, rise in price == profit
+        if (self.__position__):
+            return priceArr
+        else: # The reverse is true for shorts
+            return list(map(lambda x: x * -1), diffData)
 
     '''
     A private helper function that generates a dataframe containing the important stock indicators I will use for my trading strategy
@@ -118,7 +122,8 @@ class backtest(part1.IndicatorsTA):
             "lowerBand": self.algodf.iloc[:, 2].values,
             "middleBand": self.algodf.iloc[:, 3].values,
             "upperBand": self.algodf.iloc[:, 4].values,
-            "MACD": []
+            "MACD": [],
+            "dMACDdX": [],
         }
 
         # To find MACD, you need to find EMA(26) and EMA(12)
@@ -161,7 +166,14 @@ class backtest(part1.IndicatorsTA):
         # Calculate the MACD. It's just EMA12 - EMA26. 
         data["MACD"] = [fullEMA12[k] - fullEMA26[k] for k in range(len(fullEMA12))]
 
-        print(len(data["MACD"]))
+        # Calculate the almost instantaneous rate of change of the MACD
+        for k in range(len(data["MACD"])):
+
+            # Go back 3 spaces, including the current item
+            numberToGoBack = min(3 - 1, k)
+            firstDerivative = getRateOfChange(range(numberToGoBack + 1), data["MACD"][k - numberToGoBack : k + 1])
+            data["dMACDdX"].append(firstDerivative)
+
         # Iterates through all days to calculate OBV
         for i in range(len(mergedDf.index)):
             currData = mergedDf.iloc[i]
@@ -218,7 +230,165 @@ class backtest(part1.IndicatorsTA):
         # OBV
         # BBands - https://www.schwab.com/learn/story/bollinger-bands-what-they-are-and-how-to-use-them#:~:text=A%20Bollinger%20Band%20consists%20of,of%20price%2C%20thus%20incorporating%20volatility.
         # MACD
-        ''
+
+        # This strategy is similar to trend-following. We use OBV and its 1st and second "derivatives" as the
+        # most important baseline to determine *if* we should buy or sell since the direction of call volumes is
+        # indicative of a trend. Then, we use MACD and its 1st "derivative" (since MACD already measures change) to determine *when* we should 
+        # sell to maximize profit. We then use bbands (more specifically, the difference between the upper and lower)
+        # BBand to determine how much we should buy or sell since if a stock is volatile, we want to get rid of it
+        # ASAP
+
+        # If long
+        if (self.__position__):
+            # Establish some initial variables
+            bank = 0                                # when we sell/buy, money comes from here
+            returns = [0]                            # track % returns
+            initMoney = self.stockdf.iloc[0]["Close"] * self.__quantity__
+            stocksWeHave = self.__quantity__        # start with self.quantity number of stocks
+
+            # Adding this as internal cooldown to trades
+            justSold = 0
+            justBought = 0
+            
+            # Looping through the dates in self.trading_df simulates every new day while trading
+            for i in range(1, len(self.trading_df.index)):
+                currDate = self.trading_df.iloc[i].name.date().isoformat()
+                currData = self.trading_df.iloc[i]
+                currPrice = self.stockdf.iloc[i]["Close"]
+                
+                # Business' booming, we should sell our longs
+                if (currData["dOBVdX"] > 0 and currData["d2OBVdX2"] > 0):
+                    if (currData["MACD"] > 0 and currData["dMACDdX"] < 0.3 and justSold == 0):      # Critical point, or about to be critical point
+                        # print(currDate + "sell")
+                        # print(bank)
+                        justSold = 5
+                        # Calculate the difference between the bands and compare it to the middle band (SMA)
+                        # By basing it off SPY, < 3% is less voltaility     - Sell 25%
+                        # 3 - 7% is medium                                  - Sell 50%
+                        # > 7 is pretty big volatility ngl                  - Sell 75% 
+                        # > 10                                              - Sell 90%
+
+                        percentageFromSMA = (currData["upperBand"] - currData["lowerBand"]) / currData["middleBand"]
+
+                        if (percentageFromSMA < 0.03):
+                            stockSell = round(stocksWeHave * 0.25)
+                            bank += currPrice * (stockSell)
+                            stocksWeHave = stocksWeHave - stockSell
+                        elif (percentageFromSMA < 0.07):
+                            stockSell = round(stocksWeHave * 0.5)
+                            bank += currPrice * (stockSell)
+                            stocksWeHave = stocksWeHave - stockSell
+                        elif (percentageFromSMA < 0.1):
+                            stockSell = round(stocksWeHave * 0.75)
+                            bank += currPrice * (stockSell)
+                            stocksWeHave = stocksWeHave - stockSell
+                        else:
+                            stockSell = round(stocksWeHave * 0.9)
+                            bank += currPrice * (stockSell)
+                            stocksWeHave = stocksWeHave - stockSell
+                elif (currData["dOBVdX"] < 0 and currData["d2OBVdX2"] < 0): # this is not cash money
+                    if (currData["MACD"] < 0 and currData["dMACDdX"] > -0.3 and currData["MACD"] < -4 and justBought == 0):        # Critical point, it rising? o.o
+                        # Volatility, but this time, you buy as a % of existing stocks.
+                        # Buy 25, 50, 75% of the money in our bank
+        
+                        if (bank > currPrice):
+                            # print(currDate + "buy")
+                            # print(bank)
+                            justBought = 5
+                            # You need to be able to afford 1 stock to do anything
+                            percentageFromSMA = (currData["upperBand"] - currData["lowerBand"]) / currData["middleBand"]
+
+                            if (percentageFromSMA < 0.03):
+                                stockBuy = round(bank * 0.25 / currPrice)
+                                bank -= currPrice * stockBuy
+                                stocksWeHave = stocksWeHave + stockBuy
+                            elif (percentageFromSMA < 0.07):
+                                stockBuy = round(bank * 0.5 / currPrice)
+                                bank -= currPrice * (stockBuy)
+                                stocksWeHave = stocksWeHave + stockBuy
+                            else:
+                                stockBuy = round(bank * 0.75 / currPrice)
+                                bank -= currPrice * (stockBuy)
+                                stocksWeHave = stocksWeHave + stockBuy
+
+                # Calculate our net returns by end of day
+                currMoney = bank + stocksWeHave * currPrice
+                returns.append((currMoney - initMoney)/initMoney)
+                justSold = max(0, justSold - 1)
+                justBought = max(0, justBought - 1)
+
+            return returns
+            
+        else:
+            # Shorts. We're kinda already at a disadvantage because we hold falling stocks.
+            # Rewriting this whole section even though the math is similar to the one for long
+            # since so many variables and tiny intricacies are different here
+
+            returns = [0]                            # track % returns
+            initMoney = self.stockdf.iloc[0]["Close"] * self.__quantity__
+            bank = initMoney                         # In a shorts scenario, we start with initMoney in the band. It's just that in buy and hold... we do nothing and watch prices fall
+            stocksWeOwe = 0                          # start with self.quantity number of stocks
+            justSold = 0
+            justBought = 0
+
+            # Looping through the dates in self.trading_df simulates every new day while trading
+            for i in range(1, len(self.trading_df.index)):
+                currData = self.trading_df.iloc[i]
+                currPrice = self.stockdf.iloc[i]["Close"]
+
+                # Business' booming, Short this thing.                             
+                if (currData["dOBVdX"] > 0 and currData["d2OBVdX2"] > 0):
+                    if (currData["MACD"] > 0 and currData["dMACDdX"] < 0.3 and justSold == 0):      # Critical point, or about to be critical point
+                        # Calculate the difference between the bands and compare it to the middle band (SMA)
+                        # By basing it off SPY, < 3% is less voltaility     - Short 20% of our bank
+                        # 3 - 7% is medium                                  - Short 40% of our bank
+                        # > 7 is pretty big volatility                      - Short 60% of our bank
+                        justSold = 5
+                        percentageFromSMA = (currData["upperBand"] - currData["lowerBand"]) / currData["middleBand"]
+
+                        if (percentageFromSMA < 0.03):
+                            makeShortPromise = round(bank * 0.20 / currPrice)
+                            bank += currPrice * (makeShortPromise)
+                            stocksWeOwe += makeShortPromise
+                        elif (percentageFromSMA < 0.07):
+                            makeShortPromise = round(bank * 0.40 / currPrice)
+                            bank += currPrice * (makeShortPromise)
+                            stocksWeOwe += makeShortPromise
+                        else:
+                            makeShortPromise = round(bank * 0.60 / currPrice)
+                            bank += currPrice * (makeShortPromise)
+                            stocksWeOwe += makeShortPromise
+                elif (currData["dOBVdX"] < 0 and currData["d2OBVdX2"] < 0): # this is not cash money. Buy some stonks to pay it back
+                    if (currData["MACD"] < 0 and currData["dMACDdX"] > -0.3 and justBought == 0):        # Critical point, it rising? o.o
+                        # Volatility, but this time, you buy as a % of existing stocks.
+                        # Pay back 30%, 50%, 80% of the shorts we have
+
+                        percentageFromSMA = (currData["upperBand"] - currData["lowerBand"]) / currData["middleBand"]
+
+                        if (bank > currPrice):
+                            justBought = 5
+                            # You need to be able to afford at least 1 stock
+                            if (percentageFromSMA < 0.03):
+                                stockBuy = round(stocksWeOwe * 0.3)
+                                bank -= currPrice * (stockBuy)
+                                stocksWeOwe -= stockBuy
+                            elif (percentageFromSMA < 0.07):
+                                stockBuy = round(stocksWeOwe * 0.5)
+                                bank -= currPrice * (stockBuy)
+                                stocksWeOwe -= stockBuy
+                            else:
+                                stockBuy = round(stocksWeOwe * 0.8)
+                                bank -= currPrice * (stockBuy)
+                                stocksWeOwe -= stockBuy
+
+                # Calculate our net returns by end of day
+                # The stocks right now are a liability
+                currMoney = bank - stocksWeOwe * currPrice
+                returns.append((currMoney - initMoney)/initMoney)
+                justBought = max(0, justBought - 1)
+                justSold = max(0, justSold - 1)
+
+            return returns
 
     '''
     This plots the returns of the "buy & hold" strategy vs my strategy
@@ -234,10 +404,11 @@ class backtest(part1.IndicatorsTA):
         # Allocate the lists to graph first
         times = list(map(lambda x: x.date().isoformat() , self.algodf.index))
         percentBuyHold = self.cumulative_df.iloc[:, 0].values
-        percentMyStrat = self.cumulative_df.iloc[:, 0].values
+        percentMyStrat = self.cumulative_df.iloc[:, 1].values
 
         startStockPrice = self.stockdf.iloc[0]["Close"]
 
+        # The money from strats has to be calculated based on the initial stock price
         moneyBuyHold = list(map(lambda x : round(x * startStockPrice * self.__quantity__, 2), percentBuyHold))
         moneyMyStrat = list(map(lambda x : round(x * startStockPrice * self.__quantity__, 2), percentMyStrat))
 
@@ -250,7 +421,7 @@ class backtest(part1.IndicatorsTA):
         graphMoney.set_title("Profit", fontsize=18, fontname="Trebuchet MS", pad=10)
 
         # Constrain % y
-        graphPercent.set_ylim(-1, 1)
+        # graphPercent.set_ylim(-1, 1)
 
         for graph in graphs:
             graph.axes.spines["top"].set_visible(False)
@@ -272,7 +443,8 @@ class backtest(part1.IndicatorsTA):
             indexDate = times.index(currDate)
 
             selected.annotation.set_bbox(dict(boxstyle="round", alpha=0.7, color='#ededed'))
-            return selected.annotation.set_text("Hi")
+            return selected.annotation.set_text(f"{currDate}\nBuy & Hold: {round(percentBuyHold[indexDate] * 100, 2)}%\nMy Strat: {round(percentMyStrat[indexDate] * 100, 2)}%\n"+
+                f"Buy & Hold Profits: ${round(moneyBuyHold[indexDate], 2)}\nMy Profits: ${round(moneyMyStrat[indexDate], 2)}")
         
         lastAxvLine = [None]
         mpc.cursor(graphs, hover=True).connect(
@@ -281,4 +453,4 @@ class backtest(part1.IndicatorsTA):
         plt.show()
 
 sample = backtest(100, True)
-# sample.PlotReturns()
+sample.PlotReturns()

@@ -50,7 +50,6 @@ def linearRegression(x, y, evalX):
     
     intercept = (sumY * sumX2 - sumX * sumXY) / (len(x) * sumX2 - (sumX ** 2))
     slope = (len(x) * sumXY - sumX * sumY) / (len(x) * sumX2 - (sumX ** 2))
-
     return (slope * evalX) + intercept
 
 '''
@@ -193,7 +192,7 @@ class IndicatorsTA:
 
             # If price doesn't exist, linear regression it
             if (not (timestamp in data.index)):
-                if queue == []:
+                if (len(queue) < 2):   
                     continue
 
                 linRegNum = min(5, len(queue))      # Thought was we don't want too many elements in the linear regression because there might be, say, an upward trend that just happened 1-2 days ago
@@ -335,6 +334,5 @@ class IndicatorsTA:
     
         plt.show()
 
-
-# test = IndicatorsTA("SPY", "2023-01-01", "2023-03-05")
+# test = IndicatorsTA("SPY", "2022-09-01", "2023-03-05")
 # test.plotIndicators()
