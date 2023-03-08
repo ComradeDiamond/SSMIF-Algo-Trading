@@ -68,9 +68,9 @@ class IndicatorsTA:
     def __init__(self, tickerSymbol, startDate, endDate):
 
         # Creates field variables with the inputs in case we need it later
-        self.__tickerSymbol = tickerSymbol
-        self.__startDate = startDate
-        self.__endDate = endDate
+        self.tickerSymbol = tickerSymbol
+        self.startDate = startDate
+        self.endDate = endDate
 
         # Create the stock dataframe
 
@@ -97,7 +97,7 @@ class IndicatorsTA:
         # We want to get the stock data 3 extra days before the initial date as we need to find the gain/loss on the first day as well, and those dates might be on weekends
         # RSI might be a bit off from ones online since RSI uses prior data, and online sites accumulate data for the, say, past few hundred days
         initDate = self.stockdf.iloc[0].name.date()
-        preStartData = yfinance.download(self.__tickerSymbol, daysBefore(initDate, window + 3), daysAfter(initDate, 1))
+        preStartData = yfinance.download(self.tickerSymbol, daysBefore(initDate, window + 3), daysAfter(initDate, 1))
         rsiData = []
 
         # The first element in RSI = 100 - (100/ 1 + RS ), where RS = (average gain over window / average loss over window)
@@ -165,7 +165,7 @@ class IndicatorsTA:
         # Combine the items 20 days before with the stock prices now
         initDate = self.stockdf.iloc[0].name.date()
 
-        preData = yfinance.download(self.__tickerSymbol, daysBefore(initDate, period), initDate).reindex(columns=[
+        preData = yfinance.download(self.tickerSymbol, daysBefore(initDate, period), initDate).reindex(columns=[
             "Open",
             "High",
             "Low",
@@ -188,7 +188,7 @@ class IndicatorsTA:
             "HBand(" + str(period) + ", " + str(stdev) + ")": [],
         }
 
-        for date in pandas.date_range(daysBefore(initDate, period), self.__endDate):
+        for date in pandas.date_range(daysBefore(initDate, period), self.endDate):
             timestamp = pandas.Timestamp.fromisoformat(date.isoformat())
 
             # If price doesn't exist, linear regression it
@@ -245,7 +245,7 @@ class IndicatorsTA:
             # precise data it stores going back, we'll try to maximize the number of intervals we can aggregate using VWAP.
             if (daysFromToday <= 725):
 
-                dailyData = yfinance.download(self.__tickerSymbol, dateStr.isoformat(), daysAfter(dateStr, 1), interval="1h")
+                dailyData = yfinance.download(self.tickerSymbol, dateStr.isoformat(), daysAfter(dateStr, 1), interval="1h")
         
                 cumPV = 0
                 # VWAP formula: (cumulative typical price * volume at interval) / total volume for the day
@@ -285,7 +285,7 @@ class IndicatorsTA:
         figure, graphs = plt.subplots(3, sharex=True)
         (graphRSI, graphBands, graphVWAP) = graphs
 
-        figure.suptitle("Algodf Results for $" + self.__tickerSymbol, fontsize=32, fontname="Trebuchet MS")
+        figure.suptitle("Algodf Results for $" + self.tickerSymbol, fontsize=32, fontname="Trebuchet MS")
         figure.text(0.4, 0.05, "Hover Over a Line to Show Data", fontsize=14, fontname="Trebuchet MS")
         figure.set_size_inches(12, 6)
 
