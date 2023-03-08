@@ -36,6 +36,7 @@ def dateDifference(date1, date2):
 '''
 A class that extends IndicatorsTA
 Backtests the "buy and hold" strategy against my other trading strategy
+This initializes to trading the S&P 500 during the past year
 '''
 class backtest(part1.IndicatorsTA):
     '''
@@ -452,5 +453,6 @@ class backtest(part1.IndicatorsTA):
     
         plt.show()
 
+# Start with 100 shares of S&P 500 and see the results
 sample = backtest(100, True)
 sample.PlotReturns()
