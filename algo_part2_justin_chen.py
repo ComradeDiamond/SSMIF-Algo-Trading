@@ -26,6 +26,15 @@ def getRateOfChange(x, y):
     return slope
 
 '''
+Helper function that finds the date difference
+Date 2 - Date 1 basically
+@returns {int} Date difference in days
+'''
+def dateDifference(date1, date2):
+    print((date2 - date1).days)
+    return (date2 - date1).days
+
+'''
 A class that extends IndicatorsTA
 Backtests the "buy and hold" strategy against my other trading strategy
 '''
@@ -38,7 +47,7 @@ class backtest(part1.IndicatorsTA):
     def __init__(self, quantity, position):
         
         # The stock we want to invest in. Change it as we like
-        part1.IndicatorsTA.__init__(self, "AAPL", "2023-01-01", "2023-03-05")
+        part1.IndicatorsTA.__init__(self, "SPY", "2023-01-01", "2023-03-05")
 
         # Initializes instance variables we might want down the line
         self.__quantity__ = quantity
@@ -46,6 +55,8 @@ class backtest(part1.IndicatorsTA):
 
         # Useful dataframe
         self.trading_df = self.__generateTradingDF()
+
+        print(self.trading_df)
 
         # Creates a cumulative dataframe that contains the date, and % returns from buy and hold vs my strategy
         self.cumulative_df = pandas.DataFrame({"Buy & Hold": self.__calcBuyHold__(), "Your Strategy": self.calculateReturns()}, index=self.stockdf.index)
@@ -79,7 +90,7 @@ class backtest(part1.IndicatorsTA):
         # Get finance data 25 days (since EMA26 - will explain later - will be calculated 
         # by 25 previous days + 1) before and merge it with self.stockdf
         startDate = self.stockdf.iloc[0].name.date()
-        preStartData = yfinance.download(self.tickerSymbol, part1.daysBefore(startDate, 25), part1.daysAfter(startDate, 1)).reindex(columns=[
+        preStartData = yfinance.download(self.tickerSymbol, part1.daysBefore(startDate, 25), startDate).reindex(columns=[
             "Open",
             "High",
             "Low",
@@ -87,6 +98,7 @@ class backtest(part1.IndicatorsTA):
             "Volume",
             "Adj Close"     # Adjusted close
         ]).round(2)
+        preStartDataLen = len(preStartData.index)
 
         mergedDf = pandas.concat([preStartData, self.stockdf])
 
@@ -114,28 +126,53 @@ class backtest(part1.IndicatorsTA):
         emaSmoothingMul26 = 2/27
         emaSmoothingMul12 = 2/13
 
-        # Iterates through all days to calculate OBV and MACD
-        for i in range(1, len(mergedDf.index)):
+        # Iterates through all days to calculate EMA
+        for k in range(len(mergedDf.index)):
+            dateStr = mergedDf.iloc[k].name.date()
+
+            if (dateDifference(startDate, dateStr) >= 0):
+                currData = mergedDf.iloc[k]
+                # If this is the first time we find EMA12, take its SMA12
+                if (len(fullEMA12) == 0):
+                    acc = 0
+                    numAdded = 0
+                    for i in range(k + 1):
+                        if (dateDifference(mergedDf.iloc[i].name.date(), startDate) < 12):
+                            acc += mergedDf.iloc[i]["Close"]
+                            numAdded += 1
+                    
+                    sma = (acc / numAdded)
+                    fullEMA12.append(sma)
+                else:
+                    # EMA Formula = Closing price x multiplier + EMA (previous day) x (1-multiplier)
+                    fullEMA12.append(currData["Close"] * emaSmoothingMul12 + fullEMA12[len(fullEMA12) - 1] * (1 - emaSmoothingMul12))
+
+                # If this is the first time we find EMA26, take its SMA26
+                if (len(fullEMA26) == 0):
+                    acc = 0
+                    for i in range(k + 1):
+                        acc += mergedDf.iloc[i]["Close"]
+                
+                    sma = (acc / (k + 1))
+                    fullEMA26.append(sma)
+                else:
+                    fullEMA26.append(currData["Close"] * emaSmoothingMul26 + fullEMA26[len(fullEMA26) - 1] * (1 - emaSmoothingMul26))
+        
+        # Calculate the MACD. It's just EMA12 - EMA26. 
+        data["MACD"] = [fullEMA12[k] - fullEMA26[k] for k in range(len(fullEMA12))]
+
+        print(len(data["MACD"]))
+        # Iterates through all days to calculate OBV
+        for i in range(len(mergedDf.index)):
             currData = mergedDf.iloc[i]
 
             # First data entries
             if (i == 0):
                 fullObv.append(0)       # OBV is 0 for the first data entry since previous day close doesn't exist
-                
-                # Since EMA(previous day) doesn't exist, both EMAs will just me closing price * multiplier
-                fullEMA12.append(emaSmoothingMul12 * currData["Close"])
-                fullEMA26.append(emaSmoothingMul26 * currData["Close"])
-
-            # Not first data entry
-            else:
+            else: # Not first data entry
                 lastColData = mergedDf.iloc[i- 1]
 
-                # 1) First calculate the EMA of 12 and 16
-                # EMA Formula = Closing price x multiplier + EMA (previous day) x (1-multiplier)
-                fullEMA12.append(currData["Close"] * emaSmoothingMul12 + fullEMA12[i - 1] * (1 - emaSmoothingMul12))
-                fullEMA26.append(currData["Close"] * emaSmoothingMul26 + fullEMA26[i - 1] * (1 - emaSmoothingMul26))
-
-                # 2) Calculate OBV. It's previous OBV + volume is close today > close yesterday, 
+                # Calculate OBV. It's previous OBV + volume is close today > close yesterday, 
                 # negative ifvice versa, and 0 if the close is the same
                 currObv = fullObv[i - 1]
 
@@ -143,13 +180,11 @@ class backtest(part1.IndicatorsTA):
                     currObv += currData["Volume"]
                 elif (currData["Close"] < lastColData["Close"]):
                     currObv -= currData["Volume"]
-        
-        # Calculate the MACD. It's just EMA12 - EMA26. 
-        # Shave off the first 25 data entries though because that was only used to make MACD/OBV more accurate
-        data["MACD"] = [fullEMA12[k] - fullEMA26[k] for k in range(26, len(fullEMA12))]
+                
+                fullObv.append(currObv)
 
         # Get the OBV we'll actually use
-        data["obv"] = fullObv[26:]
+        data["obv"] = fullObv[preStartDataLen:]
 
         # Uses basic linear regression to approximate the rate of change of the OBV in ~~this economy~~ the timeframe
         # Just let initial ROC equal 0 because the slope might as well be flat.
@@ -161,16 +196,16 @@ class backtest(part1.IndicatorsTA):
 
             # The number to go back should ideally be around 10 (based it off 14 day SMA - the weekends)
             # If there's not 10 days of data, just use what we can.
-            numberToGoBack = min(10, i)
-            firstDerivative = getRateOfChange(fullObv[i - numberToGoBack : i + 1], range(i + 1))
+            numberToGoBack = min(10 - 1, i)
+            firstDerivative = getRateOfChange(range(numberToGoBack + 1), fullObv[i - numberToGoBack : i + 1])
             fullObvROC.append(firstDerivative)
 
             # At the same time find second "derivative"
-            secondDerivative = getRateOfChange(fullObvROC[i - numberToGoBack : i + 1], range(i + 1))
+            secondDerivative = getRateOfChange(range(numberToGoBack + 1), fullObvROC[i - numberToGoBack : i + 1])
             fullObvROC2.append(secondDerivative)
 
-        data["dOBVdX"] = fullObvROC[26:]
-        data["d2OBVdX2"] = fullObvROC2[26:]
+        data["dOBVdX"] = fullObvROC[preStartDataLen:]
+        data["d2OBVdX2"] = fullObvROC2[preStartDataLen:]
 
         return pandas.DataFrame(data, index=self.stockdf.index)
     
