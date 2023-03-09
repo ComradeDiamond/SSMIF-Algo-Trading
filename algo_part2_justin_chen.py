@@ -85,7 +85,7 @@ class backtest(part1.IndicatorsTA):
         if (self.__position__):
             return priceArr
         else: # The reverse is true for shorts
-            return list(map(lambda x: x * -1), diffData)
+            return list(map(lambda x: x * -1, diffData))
 
     '''
     A private helper function that generates a dataframe containing the important stock indicators I will use for my trading strategy
@@ -227,7 +227,7 @@ class backtest(part1.IndicatorsTA):
     Then, it stores and returns a DataFrame containing my % returns
     @returns {float[]} An array containing my % returns
     '''
-    def calculateReturns(self) -> pandas.Dataframe:
+    def calculateReturns(self) -> pandas.DataFrame:
         # OBV
         # BBands - https://www.schwab.com/learn/story/bollinger-bands-what-they-are-and-how-to-use-them#:~:text=A%20Bollinger%20Band%20consists%20of,of%20price%2C%20thus%20incorporating%20volatility.
         # MACD
