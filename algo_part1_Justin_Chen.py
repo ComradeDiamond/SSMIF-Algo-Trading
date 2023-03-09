@@ -92,7 +92,7 @@ class IndicatorsTA:
     @param {int} window The time period, in days, to calculate RSI by
     @returns {DataFrame} A dataframe representing the RSI of the stock from startDate to endDate
     '''
-    def __getRSI(self, window : int = 14):
+    def __getRSI(self, window : int = 14) -> pandas.DataFrame:
         # We want to get the stock data 3 extra days before the initial date as we need to find the gain/loss on the first day as well, and those dates might be on weekends
         # RSI might be a bit off from ones online since RSI uses prior data, and online sites accumulate data for the, say, past few hundred days
         initDate = self.stockdf.iloc[0].name.date()
@@ -159,7 +159,7 @@ class IndicatorsTA:
     @param {int} stdev Number of standard deviations for the middle and lower bands
     @returns {DataFrame} A dataframe with bband data
     '''
-    def __getBBands(self, period : int = 20, stdev : int = 2):
+    def __getBBands(self, period : int = 20, stdev : int = 2) -> pandas.DataFrame:
 
         # Combine the items 20 days before with the stock prices now
         initDate = self.stockdf.iloc[0].name.date()
@@ -229,7 +229,7 @@ class IndicatorsTA:
     Since VWAP consists of a collection of Volume * Price lf Volume is Traded at throughout the day, we download additional ytf stock data for each 15 minute interval of the day
     @returns {DataFrame} The Volume Weighted Average Price of the stock from startDate to endDate
     '''
-    def __getVWAP(self):
+    def __getVWAP(self) -> pandas.DataFrame:
         
         # This list will contain all the aggregated vwaps
         vwaps = []
@@ -265,7 +265,7 @@ class IndicatorsTA:
     '''
     @returns {DataFrame} Containing the Adjusted Close Price, RSI, LBand, MBand, HBand, VWAP of the stock from startDate to endDate
     '''
-    def __getIndicators(self):
+    def __getIndicators(self) -> pandas.DataFrame:
         rsi = self.__getRSI()
         bbands = self.__getBBands()
         vwap = self.__getVWAP()
@@ -280,7 +280,7 @@ class IndicatorsTA:
     Plots self.algodf in another window containing Adj Close, RSI, BBands, and VWAP data
     This uses pyplot.
     '''
-    def plotIndicators(self):
+    def plotIndicators(self) -> None:
         figure, graphs = plt.subplots(3, sharex=True)
         (graphRSI, graphBands, graphVWAP) = graphs
 
